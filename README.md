@@ -1,0 +1,4 @@
+## 播放MP3流媒体
+
+使用mad解析MP3数据，然后使用AudioTrack播放解析后的PCM数据
+支持包含meta信息和不包含meta信息的网络流媒体
