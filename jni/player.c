@@ -135,10 +135,7 @@ int NativeMP3Decoder_init() {
 
 	g_mp3Handle = mp3Handle;
 
-	readNextFrame(NULL, g_mp3Handle);
 
-	g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
-	g_Channels = g_mp3Handle->synth.pcm.channels;
 
 	return 0;
 }
@@ -146,7 +143,7 @@ int NativeMP3Decoder_init() {
 static inline int read_full_data(JNIEnv *env, char* dest, int len) {
 	int count = 0;
 	while (rb_filled(&g_httpClient.recv_data) < len) {
-		usleep(100);
+		usleep(100000);
 		count++;
 		if (count > 5 && g_httpClient.recv_thread_sts != THREAD_RUNNING){
 			if (g_httpClient.err_code == SOCK_ERROR)
@@ -159,6 +156,7 @@ static inline int read_full_data(JNIEnv *env, char* dest, int len) {
 			exception(env, -3, "网络不稳定，无法获得数据");
 			return 0;
 		}
+		LOGI("have not recv data wait %d", count);
 	}
 	int ret = rb_read(&g_httpClient.recv_data, dest, len);
 	return ret;
@@ -229,6 +227,7 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 }
 
 static inline int readNextFrame(JNIEnv *env, mp3_handle_t* mp3) {
+	LOGI("call readNextFrame");
 	do {
 		if (mp3->stream.buffer == 0 || mp3->stream.error == MAD_ERROR_BUFLEN) {
 			int inputBufferSize = 0;
@@ -306,12 +305,22 @@ int NativeMP3Decoder_readSamples(JNIEnv *env, short *target, int size) {
 
 int NativeMP3Decoder_getAduioSamplerate() {
 	LOGI("audio samplerate : %d", g_Samplerate);
+	if (g_Samplerate == 0){
+		readNextFrame(NULL, g_mp3Handle);
+		g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
+		g_Channels = g_mp3Handle->synth.pcm.channels;
+	}
 	return g_Samplerate;
 
 }
 
 int NativeMP3Decoder_getAduioChannels() {
 	LOGI("audio channels : %d", g_Channels);
+	if (g_Channels == 0) {
+		readNextFrame(NULL, g_mp3Handle);
+		g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
+		g_Channels = g_mp3Handle->synth.pcm.channels;
+	}
 	return g_Channels;
 
 }
@@ -341,10 +350,10 @@ JNIEXPORT jint JNICALL Java_com_dashu_open_audio_core_NativeMP3Decoder_initAudio
 
 	LOGI("initAudioPlayer is : %s", url);
 
-//	g_httpClient.exception = exception;
-//	g_httpClient.title_change = title_change;
-
+	g_Samplerate = 0;
+	g_Channels = 0;
 	read_size = 0;
+
 	int ret = http_connect(&g_httpClient, url);
 	if (0 == ret){
 		ret = NativeMP3Decoder_init();

@@ -21,7 +21,7 @@ LOCAL_SRC_FILES:= \
 	./util.c \
 	./net.c \
 	./ringbuf.c \
-	./player.c 
+	./player.c
 
 LOCAL_LDLIBS    := -lm -llog
 

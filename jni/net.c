@@ -119,8 +119,11 @@ int http_close(http_client_t* client) {
 	pthread_join(g_recv_tid, &thread_val);
 
 	sock_close(client->sock);
+	client->sock = 0;
 	rb_free(&client->recv_data);
     util_dict_free(client->http_parser);
+
+    LOGI("release http connect over");
 
 	return SUCCESS;
 }
@@ -143,6 +146,7 @@ void* http_recv_thread(void *arg)
 
 	while (THREAD_RUNNING == g_recv_running) {
 		memset(recvData, 0, sizeof(recvData));
+		LOGI("test %d, %d, %d", client->sock, recvData[0], allDataLen);
 		ret = recv(client->sock, recvData, allDataLen, 0);
 		if (ret <= 0) {
 			LOGE("recv data error %d", ret);
@@ -152,7 +156,7 @@ void* http_recv_thread(void *arg)
 		while ((rb_space(&client->recv_data) < ret) &&
 				(THREAD_RUNNING == g_recv_running)) {
 			LOGI("ring buff is not enough, wait 1 sec");
-			sleep(1);
+			usleep(500000);
 		}
 		rb_write(&client->recv_data, recvData, ret);
 	}

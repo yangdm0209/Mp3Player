@@ -73,12 +73,6 @@ public class StreamPlayer {
 			return;
 		}
 
-		ret = initAudioPlayer();
-		if (ret < 0) {
-			handler.sendEmptyMessage(StreamPlayerError);
-			return;
-		}
-
 		new Thread() {
 			public void run() {
 				playing();
@@ -88,6 +82,12 @@ public class StreamPlayer {
 
 	private void playing() {
 
+		int ret = initAudioPlayer();
+		if (ret < 0) {
+			handler.sendEmptyMessage(StreamPlayerError);
+			return;
+		}
+		
 		mPlayFlag = STATUS_PLAYING;
 		mAudioTrack.play();
 		handler.sendEmptyMessage(StreamPlayerPlaying);
