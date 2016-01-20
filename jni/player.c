@@ -35,6 +35,8 @@ static char* song_title = NULL;
 static int read_meta_size = 0;
 static int meta_len;
 
+static int stop_flag = 0;
+
 static JavaVM *g_jvm = NULL;
 static jobject g_feed = NULL;
 
@@ -46,6 +48,9 @@ void exception(JNIEnv *env, int code, const char* str) {
 	jclass cls;
 	jmethodID mid;
 	jstring jstr;
+	LOGW("exception is %s, env is %s", str, env==NULL?"不存在":"正常");
+	if (env == NULL)
+		return;
 	do {
 		// find class
 		cls = (*env)->GetObjectClass(env, g_feed);
@@ -145,7 +150,7 @@ static inline int read_full_data(JNIEnv *env, char* dest, int len) {
 	while (rb_filled(&g_httpClient.recv_data) < len) {
 		usleep(100000);
 		count++;
-		if (count > 5 && g_httpClient.recv_thread_sts != THREAD_RUNNING){
+		if (g_httpClient.recv_thread_sts != THREAD_RUNNING){
 			if (g_httpClient.err_code == SOCK_ERROR)
 				exception(env, -1, "网络错误");
 			else
@@ -154,6 +159,9 @@ static inline int read_full_data(JNIEnv *env, char* dest, int len) {
 		}
 		else if (count > 30){
 			exception(env, -3, "网络不稳定，无法获得数据");
+			return 0;
+		}
+		else if (stop_flag == 1){
 			return 0;
 		}
 		LOGI("have not recv data wait %d", count);
@@ -169,20 +177,23 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 		if (read_size + len < g_httpClient.metaInterval){
 			ret = read_full_data(env, dest, len);
 			read_size += ret;
-			LOGI("mp3 data request is %d, have read %d", len, read_size);
 			return ret;
 		}
 		else{
 			// 读取的MP3数据中包含meta信息， 读取前半MP3部分
 			int cut = g_httpClient.metaInterval - read_size;
 			ret = read_full_data(env, dest, cut);
+			if (ret < cut){
+				LOGE("recv data error, return");
+				return ret;
+			}
 			read_size += ret;
-			LOGI("mp3 data request is %d, first part len is %d, have read %d", len, cut, read_size);
 			read = ret;
 			if (ret == cut){
 				// 读取meta信息
 				ret = read_full_data(env, meta_data, 1);
 				if(ret != 1){
+					LOGE("recv data error, return");
 					return read;
 				}
 				read_size = 0;
@@ -191,6 +202,10 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 				if (meta_len > 0){
 					// 处理title
 					ret = read_full_data(env, meta_data, meta_len);
+					if (ret < meta_len){
+						LOGE("recv data error, return");
+						return read;
+					}
 					read_meta_size = ret;
 					if (ret < meta_len)
 						return read;
@@ -214,7 +229,6 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 				// 读取后半部分MP3数据
 				ret = read_full_data(env, dest+read, len-read);
 				read_size += ret;
-				LOGI("mp3 data request is %d, second part len is %d, have read %d", len, len-read, ret);
 				read += ret;
 			}
 
@@ -227,7 +241,6 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 }
 
 static inline int readNextFrame(JNIEnv *env, mp3_handle_t* mp3) {
-	LOGI("call readNextFrame");
 	do {
 		if (mp3->stream.buffer == 0 || mp3->stream.error == MAD_ERROR_BUFLEN) {
 			int inputBufferSize = 0;
@@ -240,13 +253,17 @@ static inline int readNextFrame(JNIEnv *env, mp3_handle_t* mp3) {
 				for (i = 0; i < leftOver; i++)
 					mp3->inputBuffer[i] = mp3->stream.next_frame[i];
 				int readBytes = readMp3(env, mp3->inputBuffer + leftOver, INPUT_BUFFER_SIZE - leftOver);
-				if (readBytes == 0)
+				if (readBytes != INPUT_BUFFER_SIZE - leftOver){
+					LOGE("readMp3 error, return");
 					return -1;
+				}
 				inputBufferSize = leftOver + readBytes;
 			} else {
 				int readBytes = readMp3(env, mp3->inputBuffer, INPUT_BUFFER_SIZE);
-				if (readBytes == 0)
+				if (readBytes !=  INPUT_BUFFER_SIZE){
+					LOGE("readMp3 error, return");
 					return -1;
+				}
 				inputBufferSize = readBytes;
 			}
 
@@ -263,7 +280,7 @@ static inline int readNextFrame(JNIEnv *env, mp3_handle_t* mp3) {
 				return -1;
 		} else
 			break;
-	} while (1);
+	} while (1 && stop_flag == 0);
 
 	mad_timer_add(&mp3->timer, mp3->frame.header.duration);
 	mad_synth_frame(&mp3->synth, &mp3->frame);
@@ -279,7 +296,7 @@ int NativeMP3Decoder_readSamples(JNIEnv *env, short *target, int size) {
 	int pos = 0;
 	int idx = 0;
 	int ret = 0;
-	while (idx != size) {
+	while (idx != size && stop_flag == 0) {
 		if (mp3->leftSamples > 0) {
 			for (; idx < size && mp3->offset < mp3->synth.pcm.length;
 					mp3->leftSamples--, mp3->offset++) {
@@ -305,10 +322,11 @@ int NativeMP3Decoder_readSamples(JNIEnv *env, short *target, int size) {
 
 int NativeMP3Decoder_getAduioSamplerate() {
 	LOGI("audio samplerate : %d", g_Samplerate);
-	if (g_Samplerate == 0){
-		readNextFrame(NULL, g_mp3Handle);
-		g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
-		g_Channels = g_mp3Handle->synth.pcm.channels;
+	if (g_Samplerate == 0 && stop_flag == 0){
+		if (readNextFrame(NULL, g_mp3Handle) == 0){
+			g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
+			g_Channels = g_mp3Handle->synth.pcm.channels;
+		}
 	}
 	return g_Samplerate;
 
@@ -316,10 +334,11 @@ int NativeMP3Decoder_getAduioSamplerate() {
 
 int NativeMP3Decoder_getAduioChannels() {
 	LOGI("audio channels : %d", g_Channels);
-	if (g_Channels == 0) {
-		readNextFrame(NULL, g_mp3Handle);
-		g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
-		g_Channels = g_mp3Handle->synth.pcm.channels;
+	if (g_Channels == 0 && stop_flag == 0) {
+		if (readNextFrame(NULL, g_mp3Handle) == 0){
+			g_Samplerate = g_mp3Handle->synth.pcm.samplerate;
+			g_Channels = g_mp3Handle->synth.pcm.channels;
+		}
 	}
 	return g_Channels;
 
@@ -353,6 +372,7 @@ JNIEXPORT jint JNICALL Java_com_dashu_open_audio_core_NativeMP3Decoder_initAudio
 	g_Samplerate = 0;
 	g_Channels = 0;
 	read_size = 0;
+	stop_flag = 0;
 
 	int ret = http_connect(&g_httpClient, url);
 	if (0 == ret){
@@ -382,8 +402,8 @@ JNIEXPORT jint JNICALL Java_com_dashu_open_audio_core_NativeMP3Decoder_getAudioB
 		(*env)->ReleaseShortArrayElements(env, audioBuf, _buf, 0);
 	}
 	else{
-			LOGD("getAudio failed");
-		}
+			LOGE("getAudio failed");
+	}
 	return ret;
 }
 
@@ -395,6 +415,7 @@ JNIEXPORT jint JNICALL Java_com_dashu_open_audio_core_NativeMP3Decoder_getAudioB
 JNIEXPORT void JNICALL Java_com_dashu_open_audio_core_NativeMP3Decoder_closeAduioPlayer(
 		JNIEnv *env, jobject obj) {
 	LOGI("close audio player");
+	stop_flag = 1;
     if (NULL != g_feed) {
 		(*env)->DeleteGlobalRef(env, g_feed);
 		g_feed = NULL;

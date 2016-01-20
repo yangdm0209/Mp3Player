@@ -146,7 +146,6 @@ void* http_recv_thread(void *arg)
 
 	while (THREAD_RUNNING == g_recv_running) {
 		memset(recvData, 0, sizeof(recvData));
-		LOGI("test %d, %d, %d", client->sock, recvData[0], allDataLen);
 		ret = recv(client->sock, recvData, allDataLen, 0);
 		if (ret <= 0) {
 			LOGE("recv data error %d", ret);

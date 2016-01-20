@@ -9,7 +9,6 @@ import android.media.AudioTrack;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
-import android.widget.Toast;
 
 public class StreamPlayer {
 
@@ -54,19 +53,19 @@ public class StreamPlayer {
 					e.printStackTrace();
 				}
 			}
-			mAudioTrack.stop();
-			mAudioTrack.release();// 关闭并释放资源
+			if (mAudioTrack != null && mAudioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING){
+				mAudioTrack.stop();
+				mAudioTrack.release();// 关闭并释放资源
+			}
 			MP3Decoder.closeAduioPlayer();
 		}
-		else {
-			handler.sendEmptyMessage(StreamPlayerStopped);
-		}
+		
+		handler.sendEmptyMessage(StreamPlayerStopped);
 	}
 
 	public void start(final String url) {
-		if (mPlayFlag == STATUS_PLAYING) {
-			Toast.makeText(context, "have already start", Toast.LENGTH_SHORT)
-					.show();
+		if (mPlayFlag == STATUS_PLAYING || mPlayFlag == STATUS_STOPING) {
+			Log.e(TAG, "I am running");
 			return;
 		}
 		Log.i(TAG, "Start in StreamPlayer");
@@ -84,14 +83,14 @@ public class StreamPlayer {
 	}
 
 	private void playing() {
-
+		mPlayFlag = STATUS_PLAYING;
 		int ret = initAudioPlayer();
 		if (ret < 0) {
 			this.feed.exception(-1, "初始化AudioTrack错误");
+			mPlayFlag = STATUS_STOPED;
 			return;
 		}
 		
-		mPlayFlag = STATUS_PLAYING;
 		mAudioTrack.play();
 		handler.sendEmptyMessage(StreamPlayerPlaying);
 
@@ -112,7 +111,6 @@ public class StreamPlayer {
 			}
 		}
 		mPlayFlag = STATUS_STOPED;
-		handler.sendEmptyMessage(StreamPlayerStopped);
 	}
 
 	private int initAudioPlayer() {
