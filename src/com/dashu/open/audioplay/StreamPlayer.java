@@ -58,6 +58,9 @@ public class StreamPlayer {
 			mAudioTrack.release();// 关闭并释放资源
 			MP3Decoder.closeAduioPlayer();
 		}
+		else {
+			handler.sendEmptyMessage(StreamPlayerStopped);
+		}
 	}
 
 	public void start(final String url) {
@@ -69,7 +72,7 @@ public class StreamPlayer {
 		Log.i(TAG, "Start in StreamPlayer");
 		int ret = MP3Decoder.initAudioPlayer(url, feed);
 		if (ret < 0) {
-			handler.sendEmptyMessage(StreamPlayerError);
+			this.feed.exception(-1, "网络错误");
 			return;
 		}
 
@@ -84,7 +87,7 @@ public class StreamPlayer {
 
 		int ret = initAudioPlayer();
 		if (ret < 0) {
-			handler.sendEmptyMessage(StreamPlayerError);
+			this.feed.exception(-1, "初始化AudioTrack错误");
 			return;
 		}
 		
@@ -157,7 +160,6 @@ public class StreamPlayer {
 			StreamPlayer.this.handler.post(new Runnable() {
 				@Override
 				public void run() {
-					if (mPlayFlag == STATUS_PLAYING)
 					stop();
 				}
 			});
