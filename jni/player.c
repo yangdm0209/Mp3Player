@@ -198,7 +198,8 @@ static inline int readMp3(JNIEnv *env, char *dest, unsigned int len){
 				}
 				read_size = 0;
 				meta_len = meta_data[0]*16;
-				LOGI("===================meta data len is=================== %d", meta_len);
+				if (meta_len > 0)
+					LOGI("===================meta data len is=================== %d", meta_len);
 				if (meta_len > 0){
 					// 处理title
 					ret = read_full_data(env, meta_data, meta_len);
